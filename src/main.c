@@ -20,6 +20,7 @@
 #define MAX_ENEMIES 80
 #define MAX_PARTICLES 200
 #define MAX_HIGHSCORES 5
+#define NUM_MAIN_LEVELS 8
 
 // --- ENUMS & STRUCTS ---
 typedef enum { 
@@ -80,22 +81,48 @@ Camera2D camera = { 0 };
 float targetCamY = 0.0f; 
 LevelTheme currentTheme = THEME_GRASS;
 
+// --- AUDIO GLOBALS ---
+Music themeMusic[4];         
+Music* currentMusic = NULL;  
+Sound sfxJump;
+Sound sfxCoin;
+Sound sfxBreak;
+Sound sfxDeath;
+Sound sfxClear;
+
 // --- FLAGPOLE GLOBALS ---
 Vector2 flagPos = {0};
 bool hasFlag = false;
 
 // UI Selection
-int menuSelection = 0;   // 0=1P, 1=2P, 2=Load, 3=Highscores
+int menuSelection = 0;   
 int pauseSelection = 0;  
 float saveMessageTimer = 0.0f; 
 float skidTimer = 0.0f; 
 
 // --- MULTIPLAYER GLOBALS ---
 int num_players = 1;
-int current_player_idx = 0; // 0 = Player 1, 1 = Player 2
+int current_player_idx = 0; 
 int player_lives[2];
 int player_scores[2];
 int player_levels[2];
+int player_return_levels[2] = {-1, -1}; 
+
+// --- MAC BUNDLE PATH FIX ---
+void SetupMacPaths() {
+    // If the game can already see the files (like when running from Terminal), DO NOT change paths!
+    if (FileExists("resources/bgm_grass.mp3")) return;
+
+    ChangeDirectory(GetApplicationDirectory());
+    if (DirectoryExists("../Resources")) ChangeDirectory("../Resources"); // .app Bundle
+    else if (DirectoryExists("../resources")) ChangeDirectory("../"); // Build folder fallback
+}
+
+void StopGameMusic() {
+    if (currentMusic != NULL) {
+        StopMusicStream(*currentMusic);
+    }
+}
 
 // --- HIGHSCORE SYSTEM ---
 void LoadHighscores() {
@@ -119,7 +146,7 @@ void SubmitHighscore(int score, int level) {
     if (score == 0) return;
     for(int i=0; i<MAX_HIGHSCORES; i++) {
         if(score > highscores[i].score) {
-            for(int j=MAX_HIGHSCORES-1; j>i; j--) highscores[j] = highscores[j-1]; // Shift down
+            for(int j=MAX_HIGHSCORES-1; j>i; j--) highscores[j] = highscores[j-1]; 
             highscores[i].score = score;
             highscores[i].level = level;
             break;
@@ -133,8 +160,8 @@ void SaveGame() {
     FILE *file = fopen("quevedo_save.txt", "w");
     if (file) {
         fprintf(file, "%d %d\n", num_players, current_player_idx);
-        fprintf(file, "%d %d %d\n", player_lives[0], player_scores[0], player_levels[0]);
-        fprintf(file, "%d %d %d\n", player_lives[1], player_scores[1], player_levels[1]);
+        fprintf(file, "%d %d %d %d\n", player_lives[0], player_scores[0], player_levels[0], player_return_levels[0]);
+        fprintf(file, "%d %d %d %d\n", player_lives[1], player_scores[1], player_levels[1], player_return_levels[1]);
         fclose(file);
         saveMessageTimer = 2.0f; 
     }
@@ -144,8 +171,8 @@ bool LoadGame() {
     FILE *file = fopen("quevedo_save.txt", "r");
     if (file) {
         fscanf(file, "%d %d", &num_players, &current_player_idx);
-        fscanf(file, "%d %d %d", &player_lives[0], &player_scores[0], &player_levels[0]);
-        fscanf(file, "%d %d %d", &player_lives[1], &player_scores[1], &player_levels[1]);
+        fscanf(file, "%d %d %d %d", &player_lives[0], &player_scores[0], &player_levels[0], &player_return_levels[0]);
+        fscanf(file, "%d %d %d %d", &player_lives[1], &player_scores[1], &player_levels[1], &player_return_levels[1]);
         fclose(file);
         return true;
     }
@@ -161,6 +188,9 @@ float MoveTowards(float current, float target, float maxDelta) {
 
 // --- THEME & FX FUNCTIONS ---
 LevelTheme GetLevelTheme(int level) {
+    if (level == 8) return THEME_CAVE;   
+    if (level == 9) return THEME_SNOW;   
+    if (level == 10) return THEME_CASTLE; 
     if (level <= 1) return THEME_GRASS;
     if (level <= 3) return THEME_CAVE;
     if (level <= 5) return THEME_SNOW;
@@ -186,9 +216,20 @@ void SpawnDebris(Vector2 pos) {
     for (int i = 0; i < 4; i++) SpawnParticle(pos, (Color){139, 69, 19, 255}, 1.5f, 12);
 }
 
-void LoadLevel(int level_idx) {
-    currentTheme = GetLevelTheme(level_idx);
+void LoadLevel(int level_idx) {    
+    LevelTheme oldTheme = currentTheme;          
+    currentTheme = GetLevelTheme(level_idx);     
     int enemy_count = 0;
+
+    // --- DYNAMIC MUSIC SWAPPER ---
+    if (currentMusic != NULL && oldTheme != currentTheme) {
+        StopMusicStream(*currentMusic);          
+    }
+    currentMusic = &themeMusic[currentTheme]; 
+    if (!IsMusicStreamPlaying(*currentMusic)) {
+        PlayMusicStream(*currentMusic);          
+    }
+    // -----------------------------
     
     for (int y = 0; y < MAP_HEIGHT; y++) {
         for (int x = 0; x < MAP_WIDTH; x++) current_map[y][x] = ' ';
@@ -234,6 +275,7 @@ void LoadLevel(int level_idx) {
             else if (tile == 'F') {
                 flagPos = (Vector2){ x * TILE_SIZE, y * TILE_SIZE };
                 hasFlag = true;
+                current_map[y][x] = ' '; 
             }
         }
     }
@@ -241,7 +283,7 @@ void LoadLevel(int level_idx) {
     for (int i = 0; i < MAX_PARTICLES; i++) particles[i].active = false;
 }
 
-bool IsTileSolid(char tile) { return (tile == '#' || tile == '?' || tile == 'X' || tile == 'W' || tile == 'B'); }
+bool IsTileSolid(char tile) { return (tile == '#' || tile == '?' || tile == 'X' || tile == 'W' || tile == 'V' || tile == 'U' || tile == 'B'); }
 
 // --- PHYSICS ---
 void UpdatePhysics(float dt) {
@@ -256,7 +298,6 @@ void UpdatePhysics(float dt) {
     
     int leftTileX = player.pos.x / TILE_SIZE;
     int rightTileX = (player.pos.x + player.width - 0.01f) / TILE_SIZE;
-    // SHRINK Y BOUNDS BY 4 PIXELS: Prevents snagging on the corner when walking off a ledge!
     int topTileX = (player.pos.y + 4.0f) / TILE_SIZE; 
     int bottomTileX = (player.pos.y + player.height - 4.0f) / TILE_SIZE; 
 
@@ -277,7 +318,6 @@ void UpdatePhysics(float dt) {
     // --- Y Axis Movement ---
     player.pos.y += player.vel.y * dt;
     
-    // SHRINK X BOUNDS BY 4 PIXELS: Prevents getting stuck when falling down tight holes!
     int leftTileY = (player.pos.x + 4.0f) / TILE_SIZE;
     int rightTileY = (player.pos.x + player.width - 4.0f) / TILE_SIZE;
     int topTileY = player.pos.y / TILE_SIZE;
@@ -305,6 +345,7 @@ void UpdatePhysics(float dt) {
                         else if (t == 'B') { 
                             current_map[y][x] = ' '; 
                             player.score += 50;
+                            PlaySound(sfxBreak);
                             SpawnDebris((Vector2){x*TILE_SIZE + 20, y*TILE_SIZE + 20});
                         }
                     }
@@ -313,10 +354,8 @@ void UpdatePhysics(float dt) {
                 } else if (t == 'C') {
                     current_map[y][x] = ' ';
                     player.score += 50;
+                    PlaySound(sfxCoin);
                     for (int i=0; i<6; i++) SpawnParticle((Vector2){x*TILE_SIZE+20, y*TILE_SIZE+20}, YELLOW, 0.5f, 4);
-                } else if (t == 'W') { 
-                    player.score += 5000;
-                    state = STATE_SECRET_CLEAR;
                 }
             }
         }
@@ -326,13 +365,10 @@ void UpdatePhysics(float dt) {
     // --- TALL FLAGPOLE COLLISION & POINTS SYSTEM ---
     if (hasFlag) {
         Rectangle playerRec = { player.pos.x, player.pos.y, player.width, player.height };
-        
-        // The pole is drawn at X+16, Y-120, width 6, height 160
-        Rectangle flagRec = { flagPos.x + 16, flagPos.y - 120, 6, 160 };
+        Rectangle flagRec = { flagPos.x + 16, flagPos.y - 120, 6, 160 }; 
         
         if (CheckCollisionRecs(playerRec, flagRec)) {
-            // Calculate height percentage
-            float hitY = player.pos.y + player.height; // Player's feet
+            float hitY = player.pos.y + player.height; 
             float poleBottom = flagPos.y + 40;
             float poleTop = flagPos.y - 120;
             
@@ -340,7 +376,6 @@ void UpdatePhysics(float dt) {
             if (percent < 0.0f) percent = 0.0f;
             if (percent > 1.0f) percent = 1.0f;
             
-            // Mario-style Tiered Points
             int points = 200;
             if (percent > 0.85f) points = 5000;
             else if (percent > 0.60f) points = 2000;
@@ -348,16 +383,15 @@ void UpdatePhysics(float dt) {
             else if (percent > 0.10f) points = 400;
             
             player.score += points;
-            TraceLog(LOG_INFO, "[FLAG] Hit at %.2f%% height! Awarded %d points.", percent * 100, points);
             
-            // Massive Particle Explosion based on height!
             Color burstColor = (points == 5000) ? GOLD : (points >= 800) ? YELLOW : LIGHTGRAY;
             for (int i = 0; i < 30; i++) {
                 SpawnParticle((Vector2){flagRec.x, hitY}, burstColor, 2.0f, 6);
             }
             
+            PlaySound(sfxClear);
             state = STATE_LEVEL_CLEAR;
-            hasFlag = false; // Prevent triggering multiple times
+            hasFlag = false; 
         }
     }
 }
@@ -367,7 +401,6 @@ void UpdateEnemies(float dt) {
         if (!enemies[i].active) continue;
         enemies[i].timer += dt;
 
-        // --- GRAVITY & AI ---
         if (enemies[i].type == ENEMY_WADDLER) {
             enemies[i].vel.y += GRAVITY * dt;
         }
@@ -386,12 +419,10 @@ void UpdateEnemies(float dt) {
             }
         }
 
-        // --- ENEMY X AXIS ---
         enemies[i].pos.x += enemies[i].vel.x * dt;
         
         int leftTileX = enemies[i].pos.x / TILE_SIZE;
         int rightTileX = (enemies[i].pos.x + enemies[i].width - 0.01f) / TILE_SIZE;
-        // Shrink Y bounds by 4 to prevent ledge snagging!
         int topTileX = (enemies[i].pos.y + 4.0f) / TILE_SIZE;
         int bottomTileX = (enemies[i].pos.y + enemies[i].height - 4.0f) / TILE_SIZE;
 
@@ -399,7 +430,6 @@ void UpdateEnemies(float dt) {
         for (int y = topTileX; y <= bottomTileX; y++) {
             for (int x = leftTileX; x <= rightTileX; x++) {
                 if (x >= 0 && x < MAP_WIDTH && y >= 0 && y < MAP_HEIGHT) {
-                    // NOTE: Spikes ('^') are removed from here so falling enemies don't get wedged!
                     if (IsTileSolid(current_map[y][x])) {
                         if (enemies[i].type != ENEMY_DROPPER) {
                             if (enemies[i].vel.x > 0) { 
@@ -414,38 +444,25 @@ void UpdateEnemies(float dt) {
             }
         }
 
-        // --- SMART LEDGE CHECK (Only for Hoppers) ---
         bool hitLedge = false;
         if (enemies[i].type == ENEMY_HOPPER && enemies[i].isGrounded) {
-            // Probe exactly 1 pixel ahead of the collision box, and 1 pixel below the feet
             float probeX = (enemies[i].vel.x > 0) ? (enemies[i].pos.x + enemies[i].width + 1.0f) : (enemies[i].pos.x - 1.0f);
             float probeY = enemies[i].pos.y + enemies[i].height + 1.0f;
-            
             int pTX = probeX / TILE_SIZE;
             int pTY = probeY / TILE_SIZE;
-
             if (pTX >= 0 && pTX < MAP_WIDTH && pTY < MAP_HEIGHT) {
                 if (!IsTileSolid(current_map[pTY][pTX])) {
                     hitLedge = true;
-                    // Snap back perfectly to the edge so they don't fall at all
-                    if (enemies[i].vel.x > 0) {
-                        enemies[i].pos.x = (pTX * TILE_SIZE) - enemies[i].width;
-                    } else {
-                        enemies[i].pos.x = (pTX + 1) * TILE_SIZE;
-                    }
+                    if (enemies[i].vel.x > 0) enemies[i].pos.x = (pTX * TILE_SIZE) - enemies[i].width;
+                    else enemies[i].pos.x = (pTX + 1) * TILE_SIZE;
                 }
             }
         }
 
         if (hitWall || hitLedge) enemies[i].vel.x *= -1; 
-
-        // Reset isGrounded for this frame's Y check
         enemies[i].isGrounded = false;
         
-        // --- ENEMY Y AXIS ---
         enemies[i].pos.y += enemies[i].vel.y * dt;
-        
-        // Shrink X bounds by 4 to prevent getting stuck falling down holes
         int leftTileY = (enemies[i].pos.x + 4.0f) / TILE_SIZE;
         int rightTileY = (enemies[i].pos.x + enemies[i].width - 4.0f) / TILE_SIZE;
         int topTileY = enemies[i].pos.y / TILE_SIZE;
@@ -464,7 +481,6 @@ void UpdateEnemies(float dt) {
                             }
                         }
                     } else if (current_map[y][x] == '^') {
-                        // FIX: If they fall onto spikes, they instantly die in a puff of smoke!
                         enemies[i].active = false;
                         for (int p=0; p<10; p++) SpawnParticle(enemies[i].pos, MAROON, 1.2f, 5);
                     }
@@ -472,7 +488,6 @@ void UpdateEnemies(float dt) {
             }
         }
 
-        // --- Player Collision Check ---
         Rectangle pRec = { player.pos.x, player.pos.y, player.width, player.height };
         Rectangle eRec = { enemies[i].pos.x, enemies[i].pos.y, enemies[i].width, enemies[i].height };
         
@@ -485,7 +500,6 @@ void UpdateEnemies(float dt) {
             } else { player.isDead = true; }
         }
         
-        // Kill enemy if they fall entirely off the bottom of the map
         if (enemies[i].pos.y > MAP_HEIGHT * TILE_SIZE + 200) enemies[i].active = false;
     }
 }
@@ -518,6 +532,14 @@ void DrawGame() {
     }
 
     BeginMode2D(camera);
+    
+    if (hasFlag) {
+        DrawRectangle(flagPos.x + 16, flagPos.y - 120, 6, 160, LIGHTGRAY);
+        DrawCircle(flagPos.x + 19, flagPos.y - 120, 8, GOLD);
+        float wave = sinf(time * 8.0f) * 5.0f;
+        DrawTriangle((Vector2){flagPos.x+22, flagPos.y-110}, (Vector2){flagPos.x+22, flagPos.y-70}, (Vector2){flagPos.x+55+wave, flagPos.y-90}, RED);
+    }
+
     for (int y = 0; y < MAP_HEIGHT; y++) {
         for (int x = 0; x < MAP_WIDTH; x++) {
             char t = current_map[y][x];
@@ -556,21 +578,15 @@ void DrawGame() {
                 Color spikeCol = (currentTheme == THEME_CASTLE) ? ORANGE : DARKGRAY;
                 DrawTriangle((Vector2){px+20, py+5}, (Vector2){px+5, py+40}, (Vector2){px+35, py+40}, spikeCol);
             }
-            else if (t == 'W') { 
+            else if (t == 'W' || t == 'V' || t == 'U') { 
                 DrawRectangle(px, py, TILE_SIZE, TILE_SIZE, LIME);
                 DrawRectangle(px-4, py, TILE_SIZE+8, 10, GREEN);
-                DrawText("SECRET", px-5, py-20, 10, GOLD);
+                DrawRectangleLines(px-4, py, TILE_SIZE+8, 10, DARKGREEN);
             }
             else if (t == 'C') {
                 float spinWidth = fabs(sinf(time * 3.0f + x)) * 14.0f;
                 DrawEllipse(px + 20, py + 20, spinWidth, 14.0f, GOLD);
                 DrawEllipse(px + 20, py + 20, spinWidth * 0.6f, 8.0f, YELLOW);
-            }
-            else if (t == 'F') {
-                DrawRectangle(px + 16, py - 120, 6, 160, LIGHTGRAY);
-                DrawCircle(px + 19, py - 120, 8, GOLD);
-                float wave = sinf(time * 8.0f) * 5.0f;
-                DrawTriangle((Vector2){px+22, py-110}, (Vector2){px+22, py-70}, (Vector2){px+55+wave, py-90}, RED);
             }
         }
     }
@@ -599,37 +615,35 @@ void DrawGame() {
         }
     }
 
-    // DRAW THE PLAYER
     if (!player.isDead) {
         float px = player.pos.x; float py = player.pos.y;
         float walkCycle = (fabs(player.vel.x) > 10.0f && player.isGrounded) ? sinf(time * 20.0f) * 8.0f : 0.0f;
         if (!player.isGrounded) walkCycle = -5.0f;
 
-        // Player 1 (Red/Blue), Player 2 (Green/Blue)
         Color pShirt = (current_player_idx == 0) ? RED : GREEN;
         Color pOveralls = BLUE;
         Color pHat = (current_player_idx == 0) ? RED : GREEN;
 
-        DrawRectangle(px + 10 - walkCycle, py + 14, 6, 12, pShirt); // Back arm
-        DrawRectangle(px + 6 + walkCycle, py + 26, 8, 14, pOveralls); // Back Leg
-        DrawRectangle(px + 16 - walkCycle, py + 26, 8, 14, pOveralls); // Front Leg
-        DrawRectangle(px + 4, py + 16, 22, 12, pOveralls); // Overalls body
-        DrawRectangle(px + 2, py + 8, 26, 8, pShirt); // Shirt
-        DrawRectangle(px + 10 + walkCycle, py + 12, 8, 14, pShirt); // Front arm
-        DrawRectangle(px + 4, py - 6, 22, 16, BEIGE); // Head
+        DrawRectangle(px + 10 - walkCycle, py + 14, 6, 12, pShirt); 
+        DrawRectangle(px + 6 + walkCycle, py + 26, 8, 14, pOveralls); 
+        DrawRectangle(px + 16 - walkCycle, py + 26, 8, 14, pOveralls); 
+        DrawRectangle(px + 4, py + 16, 22, 12, pOveralls); 
+        DrawRectangle(px + 2, py + 8, 26, 8, pShirt); 
+        DrawRectangle(px + 10 + walkCycle, py + 12, 8, 14, pShirt); 
+        DrawRectangle(px + 4, py - 6, 22, 16, BEIGE); 
         
         if (player.facingRight) {
-            DrawRectangle(px + 22, py - 2, 8, 6, BEIGE); // Nose
-            DrawRectangle(px + 18, py - 4, 4, 6, BLACK); // Eye
-            DrawRectangle(px + 16, py + 4, 10, 4, BLACK); // Mustache
-            DrawRectangle(px + 12, py - 8, 20, 4, pHat); // Brim
+            DrawRectangle(px + 22, py - 2, 8, 6, BEIGE); 
+            DrawRectangle(px + 18, py - 4, 4, 6, BLACK); 
+            DrawRectangle(px + 16, py + 4, 10, 4, BLACK); 
+            DrawRectangle(px + 12, py - 8, 20, 4, pHat); 
         } else {
             DrawRectangle(px, py - 2, 8, 6, BEIGE);
             DrawRectangle(px + 8, py - 4, 4, 6, BLACK);
             DrawRectangle(px + 4, py + 4, 10, 4, BLACK);
             DrawRectangle(px - 2, py - 8, 20, 4, pHat);
         }
-        DrawRectangle(px + 2, py - 12, 26, 6, pHat); // Hat top
+        DrawRectangle(px + 2, py - 12, 26, 6, pHat); 
     }
 
     for (int i = 0; i < MAX_PARTICLES; i++) {
@@ -650,6 +664,22 @@ int main(void) {
     InitWindow(800, 600, "Quevedo Bros Ultimate");
     SetTargetFPS(60);
 
+    SetupMacPaths();
+
+    InitAudioDevice();
+    themeMusic[THEME_GRASS] = LoadMusicStream("resources/bgm_grass.mp3");
+    themeMusic[THEME_CAVE]  = LoadMusicStream("resources/bgm_cave.mp3");
+    themeMusic[THEME_SNOW]  = LoadMusicStream("resources/bgm_snow.mp3");
+    themeMusic[THEME_CASTLE]= LoadMusicStream("resources/bgm_castle.mp3");
+
+    sfxJump = LoadSound("resources/jump.wav");
+    sfxCoin = LoadSound("resources/coin.wav");
+    sfxBreak = LoadSound("resources/break.wav");
+    sfxDeath = LoadSound("resources/death.wav");
+    sfxClear = LoadSound("resources/clear.wav");
+    
+    for (int i = 0; i < 4; i++) SetMusicVolume(themeMusic[i], 0.6f);
+
     LoadHighscores();
 
     player.width = 30; player.height = 40;
@@ -665,17 +695,17 @@ int main(void) {
                 if (IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_W)) menuSelection = (menuSelection - 1 + 4) % 4;
 
                 if (IsKeyPressed(KEY_ENTER)) {
-                    if (menuSelection == 0 || menuSelection == 1) { // New Game
+                    if (menuSelection == 0 || menuSelection == 1) { 
                         num_players = (menuSelection == 0) ? 1 : 2;
-                        player_lives[0] = 3; player_scores[0] = 0; player_levels[0] = 0;
-                        player_lives[1] = 3; player_scores[1] = 0; player_levels[1] = 0;
+                        player_lives[0] = 3; player_scores[0] = 0; player_levels[0] = 0; player_return_levels[0] = -1;
+                        player_lives[1] = 3; player_scores[1] = 0; player_levels[1] = 0; player_return_levels[1] = -1;
                         current_player_idx = 0;
                         state = STATE_READY;
                     } 
-                    else if (menuSelection == 2) { // Load Game
+                    else if (menuSelection == 2) { 
                         if (LoadGame()) state = STATE_READY;
                     }
-                    else if (menuSelection == 3) { // Highscores
+                    else if (menuSelection == 3) { 
                         state = STATE_HIGHSCORES;
                     }
                 }
@@ -686,7 +716,6 @@ int main(void) {
                 break;
 
             case STATE_READY:
-                // Sync global player to the specific person whose turn it is
                 current_level = player_levels[current_player_idx];
                 player.score = player_scores[current_player_idx];
                 player.lives = player_lives[current_player_idx];
@@ -698,12 +727,30 @@ int main(void) {
                 break;
 
             case STATE_PLAYING:
-                // --- DEV CHEAT: Press N to skip to the next level ---
-                if (IsKeyPressed(KEY_N)) {
-                    state = STATE_LEVEL_CLEAR;
-                }
-
+                if (currentMusic != NULL) UpdateMusicStream(*currentMusic);
+                
+                if (IsKeyPressed(KEY_N)) state = STATE_LEVEL_CLEAR;
                 if (IsKeyPressed(KEY_P) || IsKeyPressed(KEY_ESCAPE)) { state = STATE_PAUSED; pauseSelection = 0; }
+
+                if ((IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) && player.isGrounded) {
+                    int pX = (player.pos.x + player.width/2) / TILE_SIZE;
+                    int pY = (player.pos.y + player.height + 2.0f) / TILE_SIZE;
+                    if (pX >= 0 && pX < MAP_WIDTH && pY >= 0 && pY < MAP_HEIGHT) {
+                        char t = current_map[pY][pX];
+                        if (t == 'W' || t == 'V' || t == 'U') {
+                            PlaySound(sfxClear); 
+                            player.score += 5000;
+                            player_return_levels[current_player_idx] = current_level;
+                            
+                            if (t == 'W') current_level = 8;
+                            else if (t == 'V') current_level = 9;
+                            else if (t == 'U') current_level = 10;
+                            
+                            player_levels[current_player_idx] = current_level;
+                            state = STATE_SECRET_CLEAR; 
+                        }
+                    }
+                }
 
                 if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) { player.vel.x -= PLAYER_ACCEL * dt; player.facingRight = false; }
                 if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) { player.vel.x += PLAYER_ACCEL * dt; player.facingRight = true; }
@@ -726,6 +773,7 @@ int main(void) {
                 if (player.vel.x < -PLAYER_MAX_SPEED) player.vel.x = -PLAYER_MAX_SPEED;
                 
                 if ((IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_SPACE)) && player.isGrounded) {
+                    PlaySound(sfxJump);
                     player.vel.y = JUMP_SPEED;
                     for (int i=0; i<5; i++) SpawnParticle((Vector2){player.pos.x+15, player.pos.y+40}, LIGHTGRAY, 0.5f, 4);
                 }
@@ -752,22 +800,26 @@ int main(void) {
                 if (camera.target.x < 400.0f) camera.target.x = 400.0f;
                 if (camera.target.x > (MAP_WIDTH * TILE_SIZE) - 400.0f) camera.target.x = (MAP_WIDTH * TILE_SIZE) - 400.0f;
 
-                // Sync scores actively during play
                 player_scores[current_player_idx] = player.score;
 
                 if (player.isDead) { 
+                    PlaySound(sfxDeath);
                     player_lives[current_player_idx]--; 
                     state = STATE_DEAD; 
                 }
                 break;
 
             case STATE_PAUSED:
+                if (currentMusic != NULL) UpdateMusicStream(*currentMusic);
                 if (IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_S)) pauseSelection = (pauseSelection + 1) % 3;
                 if (IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_W)) pauseSelection = (pauseSelection - 1 + 3) % 3;
                 if (IsKeyPressed(KEY_ENTER)) {
                     if (pauseSelection == 0) state = STATE_PLAYING; 
                     else if (pauseSelection == 1) SaveGame();       
-                    else if (pauseSelection == 2) state = STATE_MENU; 
+                    else if (pauseSelection == 2) { 
+                        StopGameMusic();
+                        state = STATE_MENU; 
+                    }
                 }
                 if (IsKeyPressed(KEY_P) || IsKeyPressed(KEY_ESCAPE)) state = STATE_PLAYING;
                 if (saveMessageTimer > 0) saveMessageTimer -= dt;
@@ -775,19 +827,18 @@ int main(void) {
 
             case STATE_DEAD:
                 if (IsKeyPressed(KEY_ENTER)) {
-                    // Turn Swap Logic
                     int other_player = (current_player_idx + 1) % 2;
                     if (num_players == 2 && player_lives[other_player] > 0) {
                         current_player_idx = other_player;
                         state = STATE_READY;
                     } 
                     else if (player_lives[current_player_idx] > 0) {
-                        state = STATE_READY; // Keep playing
+                        state = STATE_READY; 
                     } 
                     else {
-                        // Both Dead -> Game Over
                         SubmitHighscore(player_scores[0], player_levels[0]);
                         if (num_players == 2) SubmitHighscore(player_scores[1], player_levels[1]);
+                        StopGameMusic();
                         state = STATE_GAME_OVER;
                     }
                 }
@@ -796,36 +847,51 @@ int main(void) {
             case STATE_GAME_OVER:
                 if (IsKeyPressed(KEY_ENTER)) state = STATE_MENU;
                 break;
+            
+            case STATE_SECRET_CLEAR:
+                if (currentMusic != NULL) UpdateMusicStream(*currentMusic);
+                if (IsKeyPressed(KEY_ENTER)) {
+                    state = STATE_READY;
+                }
+                break;
 
             case STATE_LEVEL_CLEAR:
-            case STATE_SECRET_CLEAR:
+                if (currentMusic != NULL) UpdateMusicStream(*currentMusic);
                 if (IsKeyPressed(KEY_ENTER)) {
-                    player_levels[current_player_idx] += (state == STATE_SECRET_CLEAR) ? 2 : 1;
                     
-                    if (player_levels[current_player_idx] >= MAX_LEVELS) {
-                        SubmitHighscore(player_scores[current_player_idx], MAX_LEVELS);
+                    if (current_level >= NUM_MAIN_LEVELS) {
+                        current_level = player_return_levels[current_player_idx]; 
+                        player_return_levels[current_player_idx] = -1; 
+                    } else {
+                        current_level++; 
+                    }
+                    
+                    player_levels[current_player_idx] = current_level;
+                    
+                    if (current_level == NUM_MAIN_LEVELS) { 
+                        SubmitHighscore(player_scores[current_player_idx], NUM_MAIN_LEVELS);
+                        StopGameMusic();
                         state = STATE_VICTORY;
                     } else { 
-                        state = STATE_READY; // Keep going if you win!
+                        state = STATE_READY; 
                     }
                 }
                 break;
 
             case STATE_VICTORY:
                 if (IsKeyPressed(KEY_ENTER)) {
-                    // Check if P2 still has to finish
                     int other = (current_player_idx + 1) % 2;
-                    if (num_players == 2 && player_lives[other] > 0 && player_levels[other] < MAX_LEVELS) {
+                    if (num_players == 2 && player_lives[other] > 0 && player_levels[other] < NUM_MAIN_LEVELS) {
                         current_player_idx = other;
                         state = STATE_READY;
                     } else {
+                        StopGameMusic();
                         state = STATE_MENU;
                     }
                 }
                 break;
         }
 
-        // --- DRAWING ---
         BeginDrawing();
         if (state == STATE_PLAYING || state == STATE_PAUSED) {
             DrawGame();
@@ -842,12 +908,10 @@ int main(void) {
             ClearBackground((Color){20, 20, 50, 255});
             DrawText("QUEVEDO BROS", 170, 150, 60, GOLD);
             DrawText("THE GOLDEN MICROPHONES", 230, 220, 25, LIGHTGRAY);
-            
             DrawText(menuSelection == 0 ? "> 1 PLAYER GAME <" : "1 PLAYER GAME", 280, 320, 20, (menuSelection == 0) ? GOLD : WHITE);
             DrawText(menuSelection == 1 ? "> 2 PLAYERS GAME <" : "2 PLAYERS GAME", 270, 360, 20, (menuSelection == 1) ? GOLD : WHITE);
             DrawText(menuSelection == 2 ? "> LOAD GAME <" : "LOAD GAME", 310, 400, 20, (menuSelection == 2) ? GREEN : DARKGREEN);
             DrawText(menuSelection == 3 ? "> HIGHSCORES <" : "HIGHSCORES", 305, 440, 20, (menuSelection == 3) ? ORANGE : MAROON);
-            
             DrawText("Use Arrows to Select, Enter to Confirm", 180, 530, 20, GRAY);
         }
         else if (state == STATE_HIGHSCORES) {
@@ -863,7 +927,10 @@ int main(void) {
             Color pCol = (current_player_idx == 0) ? RED : GREEN;
             DrawText(TextFormat("PLAYER %d GET READY!", current_player_idx + 1), 200, 250, 40, pCol);
             DrawText(TextFormat("LIVES: %d", player.lives), 350, 320, 20, WHITE);
-            DrawText(TextFormat("LEVEL: %d", current_level + 1), 350, 360, 20, GRAY);
+            
+            if (current_level >= NUM_MAIN_LEVELS) DrawText("SECRET LEVEL", 330, 360, 20, LIME);
+            else DrawText(TextFormat("LEVEL: %d", current_level + 1), 350, 360, 20, GRAY);
+            
             DrawText("Press ENTER to Begin", 280, 450, 20, LIGHTGRAY);
         }
         else if (state == STATE_DEAD) {
@@ -894,6 +961,17 @@ int main(void) {
         }
         EndDrawing();
     }
+    
+    for (int i = 0; i < 4; i++) {
+        UnloadMusicStream(themeMusic[i]);
+    }
+    UnloadSound(sfxJump); 
+    UnloadSound(sfxCoin); 
+    UnloadSound(sfxBreak);
+    UnloadSound(sfxDeath); 
+    UnloadSound(sfxClear);
+    CloseAudioDevice();
+    
     CloseWindow();
     return 0;
 }

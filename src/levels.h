@@ -3,11 +3,15 @@
 
 #define MAP_WIDTH 120
 #define MAP_HEIGHT 18
-#define MAX_LEVELS 8
+
+// 8 Main Levels + 3 Secret Levels
+#define NUM_MAIN_LEVELS 8
+#define MAX_LEVELS 11
 
 // Legend: 
 // P=Player, #=Ground (Dirt), B=Breakable Brick, ?=Mystery, X=Hard Block (Metal), 
-// C=Coin, ^=Spikes, F=Flagpole, W=Secret Warp Pipe
+// C=Coin, ^=Spikes, F=Flagpole, 
+// WARP PIPES: W = Secret 1, V = Secret 2, U = Secret 3
 // Enemies: E=Waddler, H=Hopper, D=Dropper
 
 // Player dist (spaces " "): 3 high - 4 deep, 2 high - 5 deep, 0 high - 7 deep, -2 down - 7 deep
@@ -34,7 +38,7 @@ const char* GAME_LEVELS[MAX_LEVELS][MAP_HEIGHT] = {
     // LEVEL 2: "The Vertical Climb" (Max gap: 4, Max height: 3)
     {
         "                                                                                                                        ",
-        "                                                                   W                                                    ",
+        "                                                                   V                                                    ",
         "                                                      XXXXX       XXX                                                   ",
         "                                                                                                                        ",
         "                                                C C                                                                     ",
@@ -105,7 +109,7 @@ const char* GAME_LEVELS[MAX_LEVELS][MAP_HEIGHT] = {
     // LEVEL 6: "The Bridge of Destruction" (5 block gaps max)
     {
         "                                                                                                                    ",
-        "             D                          D                         D                        D                        ",
+        "             D                          D                         U                        D                        ",
         "            ###                        ###                       ###                      ###                       ",
         "           #####                      #####                     #####                    #####                      ",
         "                                                                                                                    ",
@@ -137,8 +141,8 @@ const char* GAME_LEVELS[MAX_LEVELS][MAP_HEIGHT] = {
     {
         "########################################################################################################################",
         "##                                                                                                                    ##",
-        "##                                       C C C C                  C C C C                                             ##",
-        "##                                       B ? ? B                  X X X X                                             ##",
+        "##                                       C C C C                    C W C                                             ##",
+        "##                                       B ? ? B                    X X X                                             ##",
         "##               D                                    D                                    D                          ##",
         "##              ###                                  ###                                  ###                         ##",
         "##                                                                                                                F   ##",
@@ -147,6 +151,63 @@ const char* GAME_LEVELS[MAX_LEVELS][MAP_HEIGHT] = {
         "##P     E                #####            X             ###            X                ###                       #   ##",
         "####   ###              #######                        #####                           #####                      #   ##",
         "####^^^^###^^^^^^^^^^^^^#########^^^^^^^^^^^^^^^^^^^^^^#######^^^^^^^^^^^^^^^^^^^^^^^^^#######^^^^^^^^^^^^^^^^^^^^^#^^^##",
+        "########################################################################################################################"
+    },
+
+    // ----------------------------------------------------------------------------------------------------------------------
+    // SECRET LEVEL 1: "The Coin Vault" (Warps from 'W')
+    {
+        "########################################################################################################################",
+        "##                                                                                                                    ##",
+        "##                                                                                                                    ##",
+        "##                  C C C C C C C C C C C C C C C C C C C C C C C C C C C C C C                                       ##",
+        "##                  B B B B B B B B B B B B B B B B B B B B B B B B B B B B B B                                       ##",
+        "##                                                                                                                    ##",
+        "##                                                                                                                    ##",
+        "##                                                                                                                    ##",
+        "##                                                                                                                    ##",
+        "##                                                                                                                F   ##",
+        "##                                                                                                                #   ##",
+        "##P                                                                                                               #   ##",
+        "####################################################################################################################  ##",
+        "####################################################################################################################^^##",
+        "########################################################################################################################"
+    },
+    // SECRET LEVEL 2: "Cloud Jump" (Warps from 'V')
+    {
+        "                                                                                                                        ",
+        "                                                                                                                        ",
+        "                                                                                                                        ",
+        "                                                                                                                        ",
+        "                                        C C C                       C C C                                               ",
+        "                                       B B B B                     B B B B                                              ",
+        "                                                                                                                        ",
+        "                             C C C                                                                                      ",
+        "                            B B B B                                                                                     ",
+        "                                                                                                                    F   ",
+        "                  C C C                                                                                             #   ",
+        "                 B B B B                                                                                            #   ",
+        "P                                                                                                                   #   ",
+        "#######                                                                                                        ######   ",
+        "#######^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^######^^^",
+        "#######^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^######^^^"
+    },
+    // SECRET LEVEL 3: "Lava Stash" (Warps from 'U')
+    {
+        "########################################################################################################################",
+        "##                                                                                                                    ##",
+        "##                                                                                                                    ##",
+        "##                                                                                                                    ##",
+        "##                                                ? ? ? ? ? ? ? ? ? ? ? ?                                             ##",
+        "##                                                                                                                    ##",
+        "##                                                                                                                    ##",
+        "##                                                                                                                    ##",
+        "##                                                                                                                F   ##",
+        "##                                                                                                                #   ##",
+        "##P                                                                                                               #   ##",
+        "######       XXXX       XXXX       XXXX       XXXX       XXXX       XXXX       XXXX       XXXX       ################   ##",
+        "######^^^^^^^XXXX^^^^^^^XXXX^^^^^^^XXXX^^^^^^^XXXX^^^^^^^XXXX^^^^^^^XXXX^^^^^^^XXXX^^^^^^^XXXX^^^^^^^################^^^##",
+        "######^^^^^^^XXXX^^^^^^^XXXX^^^^^^^XXXX^^^^^^^XXXX^^^^^^^XXXX^^^^^^^XXXX^^^^^^^XXXX^^^^^^^XXXX^^^^^^^################^^^##",
         "########################################################################################################################"
     }
 };
@@ -159,7 +220,10 @@ const char* LEVEL_TITLES[MAX_LEVELS] = {
     "LEVEL 5: Frostbite Towers",
     "LEVEL 6: Bridge of Destruction",
     "LEVEL 7: Auto-Tune Castle",
-    "LEVEL 8: The Final Gauntlet"
+    "LEVEL 8: The Final Gauntlet",
+    "SECRET 1: The Coin Vault",
+    "SECRET 2: Cloud Heaven",
+    "SECRET 3: The Lava Stash"
 };
 
 const char* LORE_TEXT[MAX_LEVELS] = {
@@ -170,7 +234,10 @@ const char* LORE_TEXT[MAX_LEVELS] = {
     "Snow and ice... time your jumps well.",
     "The bridge is out. Keep moving!",
     "The King's fortress. Spikes everywhere.",
-    "This is it. Save the music!"
+    "This is it. Save the music!",
+    "You found a secret pipe!",
+    "You found a secret pipe!",
+    "You found a secret pipe!"
 };
 
 #endif

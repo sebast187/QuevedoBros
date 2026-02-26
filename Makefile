@@ -26,8 +26,16 @@ clean:
 app: $(TARGET)
 	@mkdir -p $(BUILD_DIR)/QuevedoBros.app/Contents/MacOS
 	@mkdir -p $(BUILD_DIR)/QuevedoBros.app/Contents/Resources
+
+	@# Copy Executable
 	@cp $(TARGET) $(BUILD_DIR)/QuevedoBros.app/Contents/MacOS/QuevedoBros
-	@cp -R $(RESOURCES_DIR)/* $(BUILD_DIR)/QuevedoBros.app/Contents/Resources/ || true
+
+	@# 1. Copy Icon directly into Resources so Mac Finder can see it
+	@cp $(RESOURCES_DIR)/MyIcon.icns $(BUILD_DIR)/QuevedoBros.app/Contents/Resources/ || true
+	
+	@# 2. Copy the whole resources folder so the C code can find "resources/bgm.mp3"
+	@cp -R $(RESOURCES_DIR) $(BUILD_DIR)/QuevedoBros.app/Contents/Resources/
+
 	@echo '<?xml version="1.0" encoding="UTF-8"?>\
 	<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\
 	<plist version="1.0">\
@@ -41,11 +49,13 @@ app: $(TARGET)
 		<key>CFBundleIconFile</key>\
 		<string>MyIcon.icns</string>\
 		<key>CFBundleVersion</key>\
-		<string>3.0</string>\
+		<string>4.1</string>\
 		<key>LSMinimumSystemVersion</key>\
 		<string>10.15</string>\
 	</dict>\
 	</plist>' > $(BUILD_DIR)/QuevedoBros.app/Contents/Info.plist
+
+	@# Force macOS to refresh the icon cache
 	@touch $(BUILD_DIR)/QuevedoBros.app
 	@echo "App Bundle created at $(BUILD_DIR)/QuevedoBros.app"
 
