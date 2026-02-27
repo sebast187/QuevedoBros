@@ -1,3 +1,3 @@
-To Download the latest preview, open the build/ folder and download the .app file
+To Download the latest preview, open the build/ folder and download the .app (for Mac) or the .zip (for Windows)
 
-**Only works on Mac, for now
+* Works on Windows and Mac
