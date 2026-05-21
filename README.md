@@ -11,7 +11,7 @@ There are no game-engine drag-and-drop tools here—every cloud, particle explos
 
 ---
 
-## 🎮 How to Play (Download)
+## How to Play (Download)
 
 **Works natively on Windows and Mac!** You do not need to install any coding software to play the game.
 
@@ -21,7 +21,7 @@ To Download the latest preview, open the `build/` folder in this repository and 
 
 ---
 
-## 🌟 Features
+## Features
 
 ### 🕹️ Gameplay
 * **Momentum Physics:** Mario-style acceleration, sliding friction, air-drag, and variable jump heights (tap for a short hop, hold for a high jump).
@@ -38,7 +38,7 @@ To Download the latest preview, open the `build/` folder in this repository and 
 
 ---
 
-## ⌨️ Controls
+## Controls
 
 | Action | Key / Button |
 | :--- | :--- |
@@ -50,11 +50,22 @@ To Download the latest preview, open the `build/` folder in this repository and 
 
 ---
 
-## 🛠️ For Developers: Building from Source
+## For Developers: Building from Source
 
 If you want to compile the game yourself, ensure you have a C compiler (`clang` or `gcc`) and `raylib` installed.
 
 ### Mac Build
-To compile the raw executable:
+To compile the statically-linked `.app` bundle with the custom icon and resources:
 ```bash
-make
+make clean
+make app
+```
+
+### Windows Build (Cross-Compiling from Mac)
+
+Ensure you have mingw-w64 installed via Homebrew, and the Windows version of Raylib in a raylib-win/ directory.
+```bash
+make clean -f Makefile.win
+make -f Makefile.win
+```
+This will compile the `.exe` and package it into the `build/Windows_Release/` folder.
