@@ -3,9 +3,13 @@ CC = clang
 CFLAGS = -Wall -std=c99 -O2
 
 # Prefer pkg-config, fallback to Homebrew Cellar paths (Apple Silicon)
-PKG_CONFIG ?= pkg-config
-RAY_CFLAGS := $(shell $(PKG_CONFIG) --cflags raylib 2>/dev/null || echo -I/opt/homebrew/Cellar/raylib/5.5/include)
-RAY_LIBS   := $(shell $(PKG_CONFIG) --libs   raylib 2>/dev/null || echo -L/opt/homebrew/Cellar/raylib/5.5/lib -lraylib -framework IOKit -framework Cocoa -framework OpenGL -framework CoreVideo)
+RAY_INCLUDE = -I/opt/homebrew/include
+RAY_LIBS = /opt/homebrew/lib/libraylib.a -framework IOKit -framework Cocoa -framework OpenGL -framework CoreVideo
+
+$(TARGET): $(SRC)
+	@mkdir -p $(BUILD_DIR)
+	$(CC) $(SRC) -o $(TARGET) $(CFLAGS) $(RAY_INCLUDE) $(RAY_LIBS)
+	@echo "Build complete! Run './$(TARGET)' to play."
 
 SRC_DIR = src
 BUILD_DIR = build
