@@ -63,7 +63,7 @@ make app
 
 ### Windows Build (Cross-Compiling from Mac)
 
-Ensure you have mingw-w64 installed via Homebrew, and the Windows version of Raylib in a raylib-win/ directory.
+Ensure you have mingw-w64 installed via Homebrew, and the Windows version of Raylib in a `raylib-win/` directory.
 ```bash
 make clean -f Makefile.win
 make -f Makefile.win
