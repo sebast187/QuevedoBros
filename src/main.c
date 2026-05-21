@@ -21,7 +21,7 @@
 
 #define MAX_ENEMIES 80               // Maximum enemies allowed in memory at once
 #define MAX_PARTICLES 200            // Maximum particle effects on screen
-#define MAX_HIGHSCORES 5             // Number of highscores saved to the file
+#define MAX_HIGHSCORES 1000          // Number of highscores saved to the file
 #define NUM_MAIN_LEVELS 8            // Levels 1-8. Levels 9, 10, 11 are Secret Levels!
 
 // ==========================================
@@ -89,6 +89,8 @@ Player player;
 Enemy enemies[MAX_ENEMIES];
 Particle particles[MAX_PARTICLES];
 HighScore highscores[MAX_HIGHSCORES];
+int total_highscores = 0;
+int highscore_page = 0;
 
 int current_level = 0;
 GameState state = STATE_MENU;
@@ -140,6 +142,11 @@ void StopGameMusic() {
     if (currentMusic != NULL) StopMusicStream(*currentMusic);
 }
 
+void DrawTextCentered(const char *text, int y, int fontSize, Color color) {
+    int textWidth = MeasureText(text, fontSize);
+    DrawText(text, (800 - textWidth) / 2, y, fontSize, color);
+}
+
 // Linear Interpolation: Slowly moves 'start' towards 'end' by a percentage ('amount'). 
 // Used to make the camera glide smoothly instead of snapping.
 // CHANGE "Lerp" to "SmoothCam"
@@ -166,10 +173,13 @@ LevelTheme GetLevelTheme(int level) {
 // FILE I/O (SAVING & LOADING)
 // ==========================================
 void LoadHighscores() {
-    for(int i=0; i<MAX_HIGHSCORES; i++) { highscores[i].score = 0; highscores[i].level = 0; }
+    total_highscores = 0;
     FILE *f = fopen("quevedo_highscores.txt", "r");
     if(f) {
-        for(int i=0; i<MAX_HIGHSCORES; i++) fscanf(f, "%d %d", &highscores[i].score, &highscores[i].level);
+        // Read until the file is empty or we hit our 1000 limit
+        while (total_highscores < MAX_HIGHSCORES && fscanf(f, "%d %d", &highscores[total_highscores].score, &highscores[total_highscores].level) == 2) {
+            total_highscores++;
+        }
         fclose(f);
     }
 }
@@ -177,21 +187,35 @@ void LoadHighscores() {
 void SaveHighscores() {
     FILE *f = fopen("quevedo_highscores.txt", "w");
     if(f) {
-        for(int i=0; i<MAX_HIGHSCORES; i++) fprintf(f, "%d %d\n", highscores[i].score, highscores[i].level);
+        for(int i = 0; i < total_highscores; i++) {
+            fprintf(f, "%d %d\n", highscores[i].score, highscores[i].level);
+        }
         fclose(f);
     }
 }
 
 void SubmitHighscore(int score, int level) {
     if (score == 0) return;
-    for(int i=0; i<MAX_HIGHSCORES; i++) {
-        // If score beats a slot, shift everything down to make room
+    
+    // Find where the score belongs in the descending list
+    int insert_idx = total_highscores;
+    for(int i = 0; i < total_highscores; i++) {
         if(score > highscores[i].score) {
-            for(int j=MAX_HIGHSCORES-1; j>i; j--) highscores[j] = highscores[j-1]; 
-            highscores[i].score = score;
-            highscores[i].level = level;
+            insert_idx = i;
             break;
         }
+    }
+    
+    // Shift the lower scores down by 1 spot
+    if (insert_idx < MAX_HIGHSCORES) {
+        int shift_end = (total_highscores < MAX_HIGHSCORES) ? total_highscores : MAX_HIGHSCORES - 1;
+        for(int j = shift_end; j > insert_idx; j--) {
+            highscores[j] = highscores[j-1];
+        }
+        highscores[insert_idx].score = score;
+        highscores[insert_idx].level = level;
+        
+        if (total_highscores < MAX_HIGHSCORES) total_highscores++;
     }
     SaveHighscores();
 }
@@ -784,8 +808,14 @@ void DrawGame() {
 // ==========================================
 int main(void) {
     SetTraceLogLevel(LOG_INFO); 
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT); // Allows manual maximization & resizing!
     InitWindow(800, 600, "Quevedo Bros Ultimate");
+    SetWindowMinSize(800, 600); // Prevent window from getting too tiny
+    SetExitKey(0);              // STOP Raylib from closing the game entirely when you press ESC!
     SetTargetFPS(60);
+
+    // Create an internal 800x600 canvas. We will draw this canvas scaled-up to whatever the window size is!
+    RenderTexture2D target = LoadRenderTexture(800, 600);
 
     SetupMacPaths();
 
@@ -838,6 +868,7 @@ int main(void) {
                         if (LoadGame()) state = STATE_READY;
                     }
                     else if (menuSelection == 3) { 
+                        highscore_page = 0; // Always start on page 1
                         state = STATE_HIGHSCORES;
                     }
                 }
@@ -846,6 +877,14 @@ int main(void) {
             case STATE_HIGHSCORES:
                 if (currentMusic != NULL) UpdateMusicStream(*currentMusic);
                 if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_ESCAPE)) state = STATE_MENU;
+                
+                // Navigate Pages Left and Right!
+                if (IsKeyPressed(KEY_RIGHT) || IsKeyPressed(KEY_D)) {
+                    if ((highscore_page + 1) * 5 < total_highscores) highscore_page++;
+                }
+                if (IsKeyPressed(KEY_LEFT) || IsKeyPressed(KEY_A)) {
+                    if (highscore_page > 0) highscore_page--;
+                }
                 break;
 
             case STATE_READY: // "Player X Get Ready!" Screen
@@ -991,9 +1030,15 @@ int main(void) {
                         state = STATE_READY; 
                     } 
                     else {
-                        // Entire game over, upload scores
-                        SubmitHighscore(player_scores[0], player_levels[0]);
-                        if (num_players == 2) SubmitHighscore(player_scores[1], player_levels[1]);
+                        // Entire game over, upload scores using true main level, not secret level!
+                        int p1_lvl = (player_levels[0] >= NUM_MAIN_LEVELS && player_return_levels[0] != -1) ? player_return_levels[0] : player_levels[0];
+                        SubmitHighscore(player_scores[0], p1_lvl);
+                        
+                        if (num_players == 2) {
+                            int p2_lvl = (player_levels[1] >= NUM_MAIN_LEVELS && player_return_levels[1] != -1) ? player_return_levels[1] : player_levels[1];
+                            SubmitHighscore(player_scores[1], p2_lvl);
+                        }
+                        
                         StopGameMusic();
                         state = STATE_GAME_OVER;
                     }
@@ -1017,8 +1062,14 @@ int main(void) {
                 if (IsKeyPressed(KEY_ENTER)) {
                     
                     if (current_level >= NUM_MAIN_LEVELS) {
-                        // If returning from a secret level, fetch the memory and wipe it!
+                        // Returning from a secret level
                         current_level = player_return_levels[current_player_idx]; 
+                        
+                        // Skip the main level unless it was the very last level!
+                        if (current_level < NUM_MAIN_LEVELS - 1) {
+                            current_level++;
+                        }
+                        
                         player_return_levels[current_player_idx] = -1; 
                     } else {
                         current_level++; // Normal progression to next level
@@ -1027,8 +1078,8 @@ int main(void) {
                     player_levels[current_player_idx] = current_level;
                     
                     if (current_level == NUM_MAIN_LEVELS) { 
-                        // Beat the final boss level!
-                        SubmitHighscore(player_scores[current_player_idx], NUM_MAIN_LEVELS);
+                        // Beat the final boss level! Submit highest actual level index (7, which displays as 8)
+                        SubmitHighscore(player_scores[current_player_idx], NUM_MAIN_LEVELS - 1);
                         StopGameMusic();
                         state = STATE_VICTORY;
                     } else { 
@@ -1056,73 +1107,103 @@ int main(void) {
         // ==========================================
         // RENDER LOOP
         // ==========================================
-        BeginDrawing();
+
+        BeginTextureMode(target); // Draw to the 800x600 internal canvas instead!
+
         if (state == STATE_PLAYING || state == STATE_PAUSED) {
             DrawGame();
             if (state == STATE_PAUSED) {
                 DrawRectangle(0, 0, 800, 600, (Color){ 0, 0, 0, 200 }); // Dim screen overlay
-                DrawText("PAUSED", 300, 150, 50, WHITE);
-                DrawText(pauseSelection == 0 ? "> RESUME <" : "RESUME", 335, 250, 20, (pauseSelection == 0) ? GOLD : GRAY);
-                DrawText(pauseSelection == 1 ? "> SAVE GAME <" : "SAVE GAME", 325, 300, 20, (pauseSelection == 1) ? GOLD : GRAY);
-                DrawText(pauseSelection == 2 ? "> QUIT TO MENU <" : "QUIT TO MENU", 310, 350, 20, (pauseSelection == 2) ? GOLD : GRAY);
-                if (saveMessageTimer > 0) DrawText("GAME SAVED!", 330, 420, 20, GREEN);
+                DrawTextCentered("PAUSED", 150, 50, WHITE);
+                DrawTextCentered(pauseSelection == 0 ? "> RESUME <" : "RESUME", 250, 20, (pauseSelection == 0) ? GOLD : GRAY);
+                DrawTextCentered(pauseSelection == 1 ? "> SAVE GAME <" : "SAVE GAME", 300, 20, (pauseSelection == 1) ? GOLD : GRAY);
+                DrawTextCentered(pauseSelection == 2 ? "> QUIT TO MENU <" : "QUIT TO MENU", 350, 20, (pauseSelection == 2) ? GOLD : GRAY);
+                if (saveMessageTimer > 0) DrawTextCentered("GAME SAVED!", 420, 20, GREEN);
             }
         }
         else if (state == STATE_MENU) {
             ClearBackground((Color){20, 20, 50, 255});
-            DrawText("QUEVEDO BROS", 170, 150, 60, GOLD);
-            DrawText("THE GOLDEN MICROPHONES", 230, 220, 25, LIGHTGRAY);
-            DrawText(menuSelection == 0 ? "> 1 PLAYER GAME <" : "1 PLAYER GAME", 280, 320, 20, (menuSelection == 0) ? GOLD : WHITE);
-            DrawText(menuSelection == 1 ? "> 2 PLAYERS GAME <" : "2 PLAYERS GAME", 270, 360, 20, (menuSelection == 1) ? GOLD : WHITE);
-            DrawText(menuSelection == 2 ? "> LOAD GAME <" : "LOAD GAME", 310, 400, 20, (menuSelection == 2) ? GREEN : DARKGREEN);
-            DrawText(menuSelection == 3 ? "> HIGHSCORES <" : "HIGHSCORES", 305, 440, 20, (menuSelection == 3) ? ORANGE : MAROON);
-            DrawText("Use Arrows to Select, Enter to Confirm", 180, 530, 20, GRAY);
+            DrawTextCentered("QUEVEDO BROS", 150, 60, GOLD);
+            DrawTextCentered("THE GOLDEN MICROPHONES", 220, 25, LIGHTGRAY);
+            DrawTextCentered(menuSelection == 0 ? "> 1 PLAYER GAME <" : "1 PLAYER GAME", 320, 20, (menuSelection == 0) ? GOLD : WHITE);
+            DrawTextCentered(menuSelection == 1 ? "> 2 PLAYERS GAME <" : "2 PLAYERS GAME", 360, 20, (menuSelection == 1) ? GOLD : WHITE);
+            DrawTextCentered(menuSelection == 2 ? "> LOAD GAME <" : "LOAD GAME", 400, 20, (menuSelection == 2) ? GREEN : DARKGREEN);
+            DrawTextCentered(menuSelection == 3 ? "> HIGHSCORES <" : "HIGHSCORES", 440, 20, (menuSelection == 3) ? ORANGE : MAROON);
+            DrawTextCentered("Use Arrows to Select, Enter to Confirm", 530, 20, GRAY);
         }
         else if (state == STATE_HIGHSCORES) {
             ClearBackground((Color){20, 20, 50, 255});
-            DrawText("TOP 5 HIGHSCORES", 220, 100, 40, GOLD);
-            for(int i=0; i<MAX_HIGHSCORES; i++) {
-                DrawText(TextFormat("%d. SCORE: %06d   (LEVEL %d)", i+1, highscores[i].score, highscores[i].level+1), 220, 200 + (i*40), 20, WHITE);
+            DrawTextCentered("ALL HIGHSCORES", 70, 40, GOLD);
+            
+            int start_idx = highscore_page * 5;
+            for(int i = 0; i < 5; i++) {
+                int idx = start_idx + i;
+                if (idx < total_highscores) {
+                    DrawTextCentered(TextFormat("%d. SCORE: %06d   (LEVEL %d)", idx+1, highscores[idx].score, highscores[idx].level+1), 160 + (i*50), 25, WHITE);
+                }
             }
-            DrawText("Press ENTER to return", 260, 480, 20, GRAY);
+            
+            // Calculate Total Pages
+            int total_pages = (total_highscores == 0) ? 1 : ((total_highscores - 1) / 5) + 1;
+            DrawTextCentered(TextFormat("PAGE %d / %d", highscore_page + 1, total_pages), 430, 20, LIGHTGRAY);
+            DrawTextCentered("< LEFT   RIGHT >   to change pages", 480, 20, GRAY);
+            DrawTextCentered("Press ENTER or ESC to return", 530, 20, DARKGRAY);
         }
         else if (state == STATE_READY) {
             ClearBackground(BLACK);
             Color pCol = (current_player_idx == 0) ? RED : GREEN;
-            DrawText(TextFormat("PLAYER %d GET READY!", current_player_idx + 1), 200, 250, 40, pCol);
-            DrawText(TextFormat("LIVES: %d", player.lives), 350, 320, 20, WHITE);
+            DrawTextCentered(TextFormat("PLAYER %d GET READY!", current_player_idx + 1), 250, 40, pCol);
+            DrawTextCentered(TextFormat("LIVES: %d", player.lives), 320, 20, WHITE);
             
-            if (current_level >= NUM_MAIN_LEVELS) DrawText("SECRET LEVEL", 330, 360, 20, LIME);
-            else DrawText(TextFormat("LEVEL: %d", current_level + 1), 350, 360, 20, GRAY);
+            if (current_level >= NUM_MAIN_LEVELS) DrawTextCentered("SECRET LEVEL", 360, 20, LIME);
+            else DrawTextCentered(TextFormat("LEVEL: %d", current_level + 1), 360, 20, GRAY);
             
-            DrawText("Press ENTER to Begin", 280, 450, 20, LIGHTGRAY);
+            DrawTextCentered("Press ENTER to Begin", 450, 20, LIGHTGRAY);
         }
         else if (state == STATE_DEAD) {
             ClearBackground(BLACK);
-            DrawText(TextFormat("PLAYER %d DIED", current_player_idx + 1), 250, 250, 40, RED);
-            DrawText("Press ENTER", 330, 350, 20, LIGHTGRAY);
+            DrawTextCentered(TextFormat("PLAYER %d DIED", current_player_idx + 1), 250, 40, RED);
+            DrawTextCentered("Press ENTER", 350, 20, LIGHTGRAY);
         }
         else if (state == STATE_GAME_OVER) {
             ClearBackground(BLACK);
-            DrawText("GAME OVER", 280, 250, 40, RED);
-            DrawText("Press ENTER for Main Menu", 250, 350, 20, LIGHTGRAY);
+            DrawTextCentered("GAME OVER", 250, 40, RED);
+            DrawTextCentered("Press ENTER for Main Menu", 350, 20, LIGHTGRAY);
         }
         else if (state == STATE_LEVEL_CLEAR || state == STATE_SECRET_CLEAR) {
             DrawGame(); // Render the game frozen in background
             DrawRectangle(0, 0, 800, 600, (Color){ 0, 0, 0, 180 });
             if (state == STATE_SECRET_CLEAR) {
-                DrawText("WARP ZONE FOUND!", 200, 200, 40, LIME);
-                DrawText("+5000 POINTS", 280, 250, 30, GOLD);
-            } else { DrawText("LEVEL CLEARED!", 250, 200, 40, GOLD); }
-            DrawText(LORE_TEXT[current_level], 150, 300, 20, WHITE);
-            DrawText("Press ENTER to Continue", 280, 380, 20, LIGHTGRAY);
+                DrawTextCentered("WARP ZONE FOUND!", 200, 40, LIME);
+                DrawTextCentered("+5000 POINTS", 250, 30, GOLD);
+            } else { 
+                DrawTextCentered("LEVEL CLEARED!", 200, 40, GOLD); 
+            }
+            DrawTextCentered(LORE_TEXT[current_level], 300, 20, WHITE);
+            DrawTextCentered("Press ENTER to Continue", 380, 20, LIGHTGRAY);
         }
         else if (state == STATE_VICTORY) {
             ClearBackground(GOLD);
-            DrawText(TextFormat("PLAYER %d WINS!", current_player_idx + 1), 220, 200, 40, BLACK);
-            DrawText(TextFormat("FINAL SCORE: %d", player.score), 280, 300, 30, RED);
-            DrawText("Press ENTER to Continue", 250, 400, 20, DARKGRAY);
+            DrawTextCentered(TextFormat("PLAYER %d WINS!", current_player_idx + 1), 200, 40, BLACK);
+            DrawTextCentered(TextFormat("FINAL SCORE: %d", player.score), 300, 30, RED);
+            DrawTextCentered("Press ENTER to Continue", 400, 20, DARKGRAY);
         }
+
+        EndTextureMode(); // End drawing to the internal 800x600 canvas
+
+        // Now, draw the canvas scaled onto the actual resizable window!
+        BeginDrawing();
+        ClearBackground(BLACK); // Letterbox/Pillarbox borders
+        
+        // Find whichever multiplier keeps the aspect ratio from stretching
+        float scale = fminf((float)GetScreenWidth() / 800.0f, (float)GetScreenHeight() / 600.0f);
+        
+        // Raylib renders textures upside down by default, so we pass a negative height in the source rectangle to flip it
+        DrawTexturePro(target.texture,
+            (Rectangle){ 0.0f, 0.0f, (float)target.texture.width, (float)-target.texture.height },
+            (Rectangle){ (GetScreenWidth() - (800.0f * scale)) * 0.5f, (GetScreenHeight() - (600.0f * scale)) * 0.5f, 800.0f * scale, 600.0f * scale },
+            (Vector2){ 0, 0 }, 0.0f, WHITE);
+            
         EndDrawing();
     }
     
@@ -1136,6 +1217,7 @@ int main(void) {
     UnloadSound(sfxDeath); 
     UnloadSound(sfxClear);
     CloseAudioDevice();
+    UnloadRenderTexture(target);
     
     CloseWindow();
     return 0;

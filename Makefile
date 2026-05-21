@@ -49,7 +49,7 @@ app: $(TARGET)
 		<key>CFBundleIconFile</key>\
 		<string>MyIcon.icns</string>\
 		<key>CFBundleVersion</key>\
-		<string>5.0</string>\
+		<string>6.0</string>\
 		<key>LSMinimumSystemVersion</key>\
 		<string>10.15</string>\
 	</dict>\
